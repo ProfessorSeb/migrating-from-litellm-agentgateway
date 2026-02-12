@@ -1,8 +1,11 @@
 # =============================================================================
-# LiteLLM Proxy Configuration
+# LiteLLM Proxy Configuration — LLM Gateway
 # =============================================================================
-# This config sets up LiteLLM as a proxy to route requests to multiple LLM
+# This config sets up LiteLLM as an LLM gateway to route requests to multiple
 # providers (OpenAI, Anthropic) via the OpenAI-compatible API format.
+#
+# LiteLLM also supports a native passthrough at /anthropic/v1/messages for
+# zero-translation Anthropic API access.
 #
 # Docs: https://docs.litellm.ai/docs/proxy/configs
 # =============================================================================
@@ -22,7 +25,7 @@ model_list:
       api_key: os.environ/OPENAI_API_KEY
 
   # -------------------------------------------------------------------------
-  # Anthropic Models
+  # Anthropic Models (via OpenAI-compatible translation)
   # -------------------------------------------------------------------------
   - model_name: claude-sonnet
     litellm_params:
