@@ -18,18 +18,18 @@ echo "============================================="
 echo ""
 
 # ---- Test 1: Health check ----
-echo "--- [1/4] Health Check ---"
+echo "--- [1/5] Health Check ---"
 curl -s "${LITELLM_URL}/health" | python3 -m json.tool 2>/dev/null || echo "(health endpoint returned non-JSON)"
 echo ""
 
 # ---- Test 2: List models ----
-echo "--- [2/4] List Models ---"
+echo "--- [2/5] List Models ---"
 curl -s "${LITELLM_URL}/v1/models" \
   -H "Authorization: Bearer ${LITELLM_KEY}" | python3 -m json.tool 2>/dev/null || echo "(models endpoint error)"
 echo ""
 
 # ---- Test 3: Chat completion via OpenAI model ----
-echo "--- [3/4] OpenAI Chat Completion (gpt-4o-mini) ---"
+echo "--- [3/5] OpenAI Chat Completion (gpt-4o-mini) ---"
 curl -s "${LITELLM_URL}/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${LITELLM_KEY}" \
@@ -40,8 +40,8 @@ curl -s "${LITELLM_URL}/v1/chat/completions" \
   }' | python3 -m json.tool 2>/dev/null || echo "(OpenAI request error)"
 echo ""
 
-# ---- Test 4: Chat completion via Anthropic model ----
-echo "--- [4/4] Anthropic Chat Completion (claude-haiku) ---"
+# ---- Test 4: Chat completion via Anthropic model (translated) ----
+echo "--- [4/5] Anthropic via OpenAI Format (claude-haiku, translated) ---"
 curl -s "${LITELLM_URL}/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${LITELLM_KEY}" \
@@ -49,7 +49,19 @@ curl -s "${LITELLM_URL}/v1/chat/completions" \
     "model": "claude-haiku",
     "messages": [{"role": "user", "content": "Say hello in one sentence."}],
     "max_tokens": 50
-  }' | python3 -m json.tool 2>/dev/null || echo "(Anthropic request error)"
+  }' | python3 -m json.tool 2>/dev/null || echo "(Anthropic translated request error)"
+echo ""
+
+# ---- Test 5: Anthropic native passthrough ----
+echo "--- [5/5] Anthropic Native Passthrough (/anthropic/v1/messages) ---"
+curl -s "${LITELLM_URL}/anthropic/v1/messages" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${LITELLM_KEY}" \
+  -d '{
+    "model": "claude-haiku-4-5-20251001",
+    "max_tokens": 50,
+    "messages": [{"role": "user", "content": "Say hello in one sentence."}]
+  }' | python3 -m json.tool 2>/dev/null || echo "(Anthropic passthrough error)"
 echo ""
 
 echo "============================================="

@@ -67,11 +67,12 @@ The AgentGateway configs are organized as a progression. Switch between them by 
 | | LiteLLM | AgentGateway |
 |---|---|---|
 | Runtime | Python + Postgres | Rust (single binary) |
-| MCP Support | None | First-class federation |
+| Anthropic API | Native passthrough + translation | Native per-provider routing |
+| MCP / A2A | LLM gateway focus | First-class MCP federation + A2A |
 | Admin UI | Requires database | Zero dependencies |
-| Config reload | Restart needed | Hot-reload |
-| Auth | API key | JWT, OAuth, MCP Auth, RBAC |
-| Anthropic API | Translated to OpenAI format | Native `/v1/messages` |
+| Config reload | Restart for YAML changes | Hot-reload on save |
+| Client auth | Bearer token required | JWT, OAuth, or none needed |
+| Provider breadth | 100+ providers | Major providers (OpenAI, Anthropic, Azure, etc.) |
 
 ## Blog Post
 
