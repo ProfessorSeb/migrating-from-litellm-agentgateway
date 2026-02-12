@@ -41,10 +41,10 @@ This guide walks through four progressive steps:
 
 1. **Basic Routing** — Route to OpenAI and Anthropic
 2. **Multiple Providers** — Unified gateway with path-based routing
-3. **MCP Federation** — Aggregate multiple MCP servers (AgentGateway-only)
-4. **MCP Authentication** — Secure MCP endpoints with JWT/OAuth (AgentGateway-only)
+3. **MCP Federation** — Aggregate multiple MCP servers behind one endpoint
+4. **MCP Authentication** — Secure MCP endpoints with JWT/OAuth
 
-By the end, you'll have both LiteLLM and AgentGateway running side by side in Docker so you can compare the LLM routing directly, and then see AgentGateway go beyond into MCP territory.
+By the end, you'll have both LiteLLM and AgentGateway running side by side in Docker so you can compare them directly.
 
 ---
 
