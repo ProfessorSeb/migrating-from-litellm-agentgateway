@@ -1,0 +1,60 @@
+# =============================================================================
+# Step 2: Multiple Providers — Unified Gateway
+# =============================================================================
+# Route to OpenAI and Anthropic through a SINGLE port with path-based routing.
+# This is the AgentGateway equivalent of LiteLLM's model_list with multiple
+# providers, but with native protocol handling and zero translation overhead.
+#
+# Key difference from LiteLLM:
+#   - LiteLLM translates everything to OpenAI format, then back
+#   - AgentGateway routes natively — Anthropic's /v1/messages stays native
+#   - Automatic header injection (x-api-key, anthropic-version)
+#   - Built-in weighted load balancing and health checking
+#
+# Test with:
+#   curl http://localhost:3000/openai/v1/chat/completions ...
+#   curl http://localhost:3000/anthropic/v1/messages ...
+# =============================================================================
+
+binds:
+  - port: 3000
+    listeners:
+      - routes:
+          # ------------------------------------------------------------------
+          # OpenAI route
+          # ------------------------------------------------------------------
+          - match:
+              path: /openai
+            backends:
+              - ai:
+                  name: openai
+                  provider:
+                    openAI:
+                      model: gpt-4o
+                  routes:
+                    /v1/chat/completions: completions
+                    /v1/models: passthrough
+                    "*": passthrough
+            policies:
+              backendAuth:
+                key: "$OPENAI_API_KEY"
+
+          # ------------------------------------------------------------------
+          # Anthropic route
+          # ------------------------------------------------------------------
+          - match:
+              path: /anthropic
+            backends:
+              - ai:
+                  name: anthropic
+                  provider:
+                    anthropic:
+                      model: claude-sonnet-4-5-20250929
+                  routes:
+                    /v1/messages: messages
+                    /v1/chat/completions: completions
+                    /v1/models: passthrough
+                    "*": passthrough
+            policies:
+              backendAuth:
+                key: "$ANTHROPIC_API_KEY"

@@ -1,0 +1,58 @@
+# =============================================================================
+# Step 1: Basic LLM Routing — OpenAI + Anthropic
+# =============================================================================
+# The simplest AgentGateway config: route to two LLM providers on separate
+# path prefixes through a single gateway port.
+#
+# Equivalent LiteLLM concept: model_list with two providers
+# AgentGateway advantage: native protocol support, no translation layer,
+#   automatic header injection, built-in admin UI on :15000
+#
+# Test with:
+#   curl http://localhost:3000/openai/v1/chat/completions ...
+#   curl http://localhost:3000/anthropic/v1/messages ...
+# =============================================================================
+
+binds:
+  # --------------------------------------------------------------------------
+  # OpenAI — route anything under /openai to OpenAI's API
+  # --------------------------------------------------------------------------
+  - port: 3000
+    listeners:
+      - routes:
+          - match:
+              path: /openai
+            backends:
+              - ai:
+                  name: openai
+                  provider:
+                    openAI:
+                      model: gpt-4o-mini
+                  routes:
+                    /v1/chat/completions: completions
+                    /v1/models: passthrough
+                    "*": passthrough
+            policies:
+              backendAuth:
+                key: "$OPENAI_API_KEY"
+
+  # --------------------------------------------------------------------------
+  # Anthropic — route anything under /anthropic to Anthropic's API
+  # --------------------------------------------------------------------------
+  - port: 3001
+    listeners:
+      - routes:
+          - backends:
+              - ai:
+                  name: anthropic
+                  provider:
+                    anthropic:
+                      model: claude-haiku-4-5-20251001
+                  routes:
+                    /v1/messages: messages
+                    /v1/chat/completions: completions
+                    /v1/models: passthrough
+                    "*": passthrough
+            policies:
+              backendAuth:
+                key: "$ANTHROPIC_API_KEY"
