@@ -1,0 +1,124 @@
+# =============================================================================
+# Step 4: MCP Authentication — Secure Your MCP Endpoints
+# =============================================================================
+# AgentGateway implements the MCP Authorization spec natively.
+# This means you can protect MCP tools with OAuth/JWT without writing
+# any auth code in your MCP servers.
+#
+# LiteLLM comparison: LiteLLM has no MCP support, let alone MCP auth.
+# AgentGateway gives you spec-compliant MCP OAuth out of the box.
+#
+# This config adds:
+#   - JWT authentication on MCP endpoints
+#   - MCP Authorization spec compliance (resource metadata, JWKS)
+#   - Authorization rules using CEL expressions
+#
+# Admin UI at: http://localhost:15000/ui
+# =============================================================================
+
+binds:
+  # --------------------------------------------------------------------------
+  # LLM routing (same as before)
+  # --------------------------------------------------------------------------
+  - port: 3000
+    listeners:
+      - routes:
+          - match:
+              path: /openai
+            backends:
+              - ai:
+                  name: openai
+                  provider:
+                    openAI:
+                      model: gpt-4o
+                  routes:
+                    /v1/chat/completions: completions
+                    /v1/models: passthrough
+                    "*": passthrough
+            policies:
+              backendAuth:
+                key: "$OPENAI_API_KEY"
+
+          - match:
+              path: /anthropic
+            backends:
+              - ai:
+                  name: anthropic
+                  provider:
+                    anthropic:
+                      model: claude-sonnet-4-5-20250929
+                  routes:
+                    /v1/messages: messages
+                    /v1/chat/completions: completions
+                    /v1/models: passthrough
+                    "*": passthrough
+            policies:
+              backendAuth:
+                key: "$ANTHROPIC_API_KEY"
+
+  # --------------------------------------------------------------------------
+  # Authenticated MCP endpoint
+  # --------------------------------------------------------------------------
+  - port: 3002
+    listeners:
+      - routes:
+          - policies:
+              cors:
+                allowOrigins:
+                  - "*"
+                allowHeaders:
+                  - mcp-protocol-version
+                  - content-type
+                  - cache-control
+                  - authorization
+                exposeHeaders:
+                  - "Mcp-Session-Id"
+              # ----------------------------------------------------------------
+              # JWT Authentication — validate tokens on every MCP request
+              # ----------------------------------------------------------------
+              jwtAuth:
+                mode: strict
+                issuer: https://your-oauth-provider.com
+                audiences: [agentgateway-mcp]
+                jwks:
+                  url: https://your-oauth-provider.com/.well-known/jwks.json
+              # ----------------------------------------------------------------
+              # Authorization rules using CEL expressions
+              # ----------------------------------------------------------------
+              authorization:
+                rules:
+                  - allow: 'jwt.scope.contains("mcp:read")'
+            backends:
+              - mcp:
+                  targets:
+                    - name: filesystem
+                      stdio:
+                        cmd: npx
+                        args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+
+                    - name: memory
+                      stdio:
+                        cmd: npx
+                        args: ["-y", "@modelcontextprotocol/server-memory"]
+
+  # --------------------------------------------------------------------------
+  # MCP Authentication (OAuth Resource Server) — spec-compliant
+  # --------------------------------------------------------------------------
+  # To use this with a real OAuth provider like Keycloak or Auth0,
+  # uncomment and configure the mcpAuthentication block below:
+  #
+  # mcpAuthentication:
+  #   issuer: http://localhost:7080/realms/mcp
+  #   jwks:
+  #     url: http://localhost:7080/protocol/openid-connect/certs
+  #   provider:
+  #     keycloak: {}
+  #   resourceMetadata:
+  #     resource: http://localhost:3002/mcp
+  #     scopesSupported:
+  #       - mcp:read
+  #       - mcp:write
+  #     bearerMethodsSupported:
+  #       - header
+  #       - body
+  #       - query

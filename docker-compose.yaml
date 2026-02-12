@@ -1,0 +1,93 @@
+# =============================================================================
+# Docker Compose: LiteLLM vs AgentGateway — Side by Side
+# =============================================================================
+# This spins up BOTH gateways so you can compare them directly.
+#
+#   LiteLLM:       http://localhost:4000       (proxy API)
+#   LiteLLM UI:    http://localhost:4000/ui    (admin dashboard)
+#   AgentGateway:  http://localhost:3000       (LLM routing)
+#   AgentGateway:  http://localhost:3002       (MCP federation)
+#   AgentGateway:  http://localhost:15000/ui   (admin dashboard)
+#
+# Usage:
+#   cp .env.example .env   # fill in your API keys
+#   docker compose up -d
+#
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # LiteLLM Stack
+  # ===========================================================================
+  litellm-db:
+    image: postgres:16-alpine
+    container_name: litellm-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-litellm}
+      POSTGRES_USER: ${POSTGRES_USER:-litellm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-litellm}
+    volumes:
+      - litellm_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gateway-net
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm
+    ports:
+      - "4000:4000"
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-litellm-master-key-1234}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-sk-litellm-salt-key-1234}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://litellm:litellm@litellm-db:5432/litellm}
+      STORE_MODEL_IN_DB: "True"
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - ./litellm/litellm-config.yaml:/app/config.yaml
+    command: >
+      --config /app/config.yaml
+      --port 4000
+      --detailed_debug
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+    networks:
+      - gateway-net
+
+  # ===========================================================================
+  # AgentGateway
+  # ===========================================================================
+  agentgateway:
+    image: ghcr.io/agentgateway/agentgateway:latest
+    container_name: agentgateway
+    ports:
+      - "3000:3000"       # LLM routing (OpenAI + Anthropic)
+      - "3001:3001"       # Secondary LLM port (step 1)
+      - "3002:3002"       # MCP federation endpoint
+      - "15000:15000"     # Admin UI
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      # Swap the config file to try different steps:
+      #   step1-basic-routing  — two LLM providers on separate ports
+      #   step2-multi-provider — unified gateway, path-based routing
+      #   step3-mcp-federation — LLM routing + federated MCP
+      #   step4-mcp-auth       — full setup with JWT auth on MCP
+      - ./agentgateway/configs/step3-mcp-federation/agentgateway.yaml:/cfg/agentgateway.yaml:ro
+    command: ["--file=/cfg/agentgateway.yaml"]
+    networks:
+      - gateway-net
+
+volumes:
+  litellm_postgres_data:
+
+networks:
+  gateway-net:
+    driver: bridge

@@ -1,0 +1,88 @@
+# =============================================================================
+# Step 3: MCP Federation — Aggregate Multiple MCP Servers
+# =============================================================================
+# This is where AgentGateway truly differentiates from LiteLLM.
+# LiteLLM has NO native MCP support. AgentGateway was built for it.
+#
+# MCP Federation exposes a SINGLE MCP endpoint that aggregates tools from
+# multiple backend MCP servers. Tools are automatically prefixed with the
+# target name (e.g., filesystem_read_file, memory_create_entities).
+#
+# This config federates:
+#   - A filesystem MCP server (read/write files in /tmp)
+#   - A memory MCP server (knowledge graph)
+#
+# Access the federated MCP endpoint at: http://localhost:3000/mcp
+# Admin UI at: http://localhost:15000/ui
+# =============================================================================
+
+binds:
+  # --------------------------------------------------------------------------
+  # LLM routing (same as Step 2)
+  # --------------------------------------------------------------------------
+  - port: 3000
+    listeners:
+      - routes:
+          - match:
+              path: /openai
+            backends:
+              - ai:
+                  name: openai
+                  provider:
+                    openAI:
+                      model: gpt-4o
+                  routes:
+                    /v1/chat/completions: completions
+                    /v1/models: passthrough
+                    "*": passthrough
+            policies:
+              backendAuth:
+                key: "$OPENAI_API_KEY"
+
+          - match:
+              path: /anthropic
+            backends:
+              - ai:
+                  name: anthropic
+                  provider:
+                    anthropic:
+                      model: claude-sonnet-4-5-20250929
+                  routes:
+                    /v1/messages: messages
+                    /v1/chat/completions: completions
+                    /v1/models: passthrough
+                    "*": passthrough
+            policies:
+              backendAuth:
+                key: "$ANTHROPIC_API_KEY"
+
+  # --------------------------------------------------------------------------
+  # Federated MCP endpoint — this is the magic
+  # --------------------------------------------------------------------------
+  - port: 3002
+    listeners:
+      - routes:
+          - policies:
+              cors:
+                allowOrigins:
+                  - "*"
+                allowHeaders:
+                  - mcp-protocol-version
+                  - content-type
+                  - cache-control
+                exposeHeaders:
+                  - "Mcp-Session-Id"
+            backends:
+              - mcp:
+                  targets:
+                    # Filesystem MCP server — tools prefixed with "filesystem_"
+                    - name: filesystem
+                      stdio:
+                        cmd: npx
+                        args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+
+                    # Memory MCP server — tools prefixed with "memory_"
+                    - name: memory
+                      stdio:
+                        cmd: npx
+                        args: ["-y", "@modelcontextprotocol/server-memory"]
