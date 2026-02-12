@@ -1,6 +1,6 @@
 # Migrating from LiteLLM to AgentGateway: A Practical Guide
 
-**TL;DR:** LiteLLM is a capable LLM gateway with 100+ provider support and native passthrough endpoints. AgentGateway is a next-generation agentic proxy that goes beyond LLM routing — with native multi-provider support, MCP federation, A2A protocol handling, spec-compliant security, and a Rust runtime built for the agentic era. This guide walks you through a side-by-side migration with working configs.
+**TL;DR:** LiteLLM is a capable LLM gateway with 100+ provider support and native passthrough endpoints. AgentGateway is a next-generation agentic proxy — with native multi-provider support, A2A protocol handling, spec-compliant security, and a Rust runtime built for the agentic era. This guide walks you through a side-by-side migration with working configs.
 
 ---
 
@@ -8,7 +8,7 @@
 
 LiteLLM is a solid LLM gateway. It gives you an OpenAI-compatible API that fans out to 100+ providers, offers a native passthrough at `/anthropic/v1/messages` for zero-translation Anthropic access, and includes cost tracking, guardrails, and load balancing. As a pure LLM proxy, it does the job.
 
-But if you're building agentic infrastructure — agents that call tools via MCP, talk to other agents via A2A, and need enterprise-grade security at every layer — you need more than an LLM proxy. AgentGateway was designed from day one as an **agentic data plane**, not just an LLM router.
+But if you're building agentic infrastructure — agents that talk to other agents via A2A, need enterprise-grade security at every layer, and want a high-performance runtime — you need more than an LLM proxy. AgentGateway was designed from day one as an **agentic data plane**, not just an LLM router.
 
 Here's the comparison, focused on LLM gateway capabilities:
 
@@ -27,22 +27,19 @@ Here's the comparison, focused on LLM gateway capabilities:
 | Cost tracking | Built-in | Via observability (OpenTelemetry, Prometheus) |
 | Load balancing | Built-in (RPM/TPM-based) | Weighted backends, health-aware (pick-2 random) |
 | Guardrails / prompt guard | Built-in | Regex + webhook-based via policies |
-| MCP federation | Separate feature (MCP Gateway) | First-class: federation, auth, RBAC |
 | A2A (Agent-to-Agent) | Not supported | Native protocol support |
 | Linux Foundation backed | No | Yes |
 
-Both gateways handle LLM routing well. LiteLLM has more provider breadth (100+) and built-in cost tracking. AgentGateway has architectural advantages: Rust performance, zero-dependency deployment, protocol-native routing, and — critically — MCP and A2A as first-class capabilities that LiteLLM doesn't have at the infrastructure level.
+Both gateways handle LLM routing well. LiteLLM has more provider breadth (100+) and built-in cost tracking. AgentGateway has architectural advantages: Rust performance, zero-dependency deployment, protocol-native routing, and A2A as a first-class capability.
 
 ---
 
 ## What We'll Build
 
-This guide walks through four progressive steps:
+This guide walks through two progressive steps:
 
 1. **Basic Routing** — Route to OpenAI and Anthropic
 2. **Multiple Providers** — Unified gateway with path-based routing
-3. **MCP Federation** — Aggregate multiple MCP servers behind one endpoint
-4. **MCP Authentication** — Secure MCP endpoints with JWT/OAuth
 
 By the end, you'll have both LiteLLM and AgentGateway running side by side in Docker so you can compare them directly.
 
@@ -294,122 +291,6 @@ LiteLLM's flat `model_list` is simpler for quick setups. AgentGateway's hierarch
 
 ---
 
-## Step 3: MCP Federation — Beyond LLM Routing
-
-This is where AgentGateway goes beyond what an LLM gateway does. MCP (Model Context Protocol) lets agents call tools — read files, query databases, interact with APIs. AgentGateway can federate multiple MCP servers behind a single endpoint.
-
-This has no equivalent in LiteLLM's LLM gateway role. It's new infrastructure.
-
-```yaml
-# agentgateway/configs/step3-mcp-federation/agentgateway.yaml (MCP portion)
-  - port: 3002
-    listeners:
-      - routes:
-          - policies:
-              cors:
-                allowOrigins: ["*"]
-                allowHeaders: [mcp-protocol-version, content-type, cache-control]
-                exposeHeaders: ["Mcp-Session-Id"]
-            backends:
-              - mcp:
-                  targets:
-                    - name: filesystem
-                      stdio:
-                        cmd: npx
-                        args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-
-                    - name: memory
-                      stdio:
-                        cmd: npx
-                        args: ["-y", "@modelcontextprotocol/server-memory"]
-```
-
-What this gives you:
-
-- **One endpoint** (`http://localhost:3002`) exposes tools from multiple MCP servers
-- **Automatic namespacing**: tools are prefixed with their server name (`filesystem_read_file`, `memory_create_entities`)
-- **Transport flexibility**: stdio, HTTP/SSE, and Streamable HTTP backends in the same config
-- **The admin UI** at `http://localhost:15000/ui` lets you browse all federated tools, test them interactively via a built-in MCP playground, and update config without restarts
-- **Hot-reload**: add an MCP server to the YAML, save — it's live instantly
-
-To add another MCP server (say, GitHub), just append a target:
-
-```yaml
-                    - name: github
-                      stdio:
-                        cmd: npx
-                        args: ["-y", "@modelcontextprotocol/server-github"]
-                      env:
-                        GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
-```
-
-Save the file. AgentGateway hot-reloads. No restart needed.
-
-This is the key differentiator: **AgentGateway is both your LLM gateway AND your MCP gateway in one process.** Your agents connect to one infrastructure layer for both LLM calls and tool access.
-
----
-
-## Step 4: MCP Authentication — Enterprise Security for Tools
-
-AgentGateway implements the [MCP Authorization specification](https://spec.modelcontextprotocol.io/) natively. You can protect MCP tools with JWT authentication and CEL-based authorization rules — without writing any auth code in your MCP servers:
-
-```yaml
-  - port: 3002
-    listeners:
-      - routes:
-          - policies:
-              cors:
-                allowOrigins: ["*"]
-                allowHeaders: [mcp-protocol-version, content-type, cache-control, authorization]
-                exposeHeaders: ["Mcp-Session-Id"]
-              jwtAuth:
-                mode: strict
-                issuer: https://your-oauth-provider.com
-                audiences: [agentgateway-mcp]
-                jwks:
-                  url: https://your-oauth-provider.com/.well-known/jwks.json
-              authorization:
-                rules:
-                  - allow: 'jwt.scope.contains("mcp:read")'
-            backends:
-              - mcp:
-                  targets:
-                    - name: filesystem
-                      stdio:
-                        cmd: npx
-                        args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-                    - name: memory
-                      stdio:
-                        cmd: npx
-                        args: ["-y", "@modelcontextprotocol/server-memory"]
-```
-
-For full OAuth compliance (Keycloak, Auth0), AgentGateway also supports `mcpAuthentication` which implements the server side of the MCP Auth spec — including resource metadata and dynamic client registration:
-
-```yaml
-mcpAuthentication:
-  issuer: http://localhost:7080/realms/mcp
-  jwks:
-    url: http://localhost:7080/protocol/openid-connect/certs
-  provider:
-    keycloak: {}
-  resourceMetadata:
-    resource: http://localhost:3002/mcp
-    scopesSupported: [mcp:read, mcp:write]
-    bearerMethodsSupported: [header, body, query]
-```
-
-### What This Means
-
-- **JWT authentication** validates tokens on every MCP request using your existing identity provider
-- **CEL-based authorization** lets you write expressive rules: `jwt.groups.contains("admins")` is more powerful than a static tools whitelist
-- **MCP Auth spec compliance** means any spec-compliant MCP client can authenticate without knowing it's talking through AgentGateway
-- **External authorization** supports OPA (Open Policy Agent) for complex policy decisions
-
-This is infrastructure-level security for the agentic stack. When your agents are calling tools in production, you need this.
-
----
-
 ## Running Both Side by Side
 
 The included `docker-compose.yaml` spins up everything:
@@ -429,8 +310,7 @@ What's running:
 | LiteLLM Admin UI | `http://localhost:4000/ui` | Dashboard (requires Postgres) |
 | LiteLLM Postgres | (internal) | Required for LiteLLM admin UI |
 | AgentGateway LLM | `http://localhost:3000` | LLM routing (native per-provider) |
-| AgentGateway MCP | `http://localhost:3002` | Federated MCP endpoint |
-| AgentGateway Admin UI | `http://localhost:15000/ui` | Dashboard + MCP playground (zero dependencies) |
+| AgentGateway Admin UI | `http://localhost:15000/ui` | Dashboard (zero dependencies) |
 
 Run the comparison scripts:
 
@@ -442,15 +322,13 @@ Run the comparison scripts:
 
 ### Switching AgentGateway Configs
 
-The Docker Compose mounts the Step 3 config by default. To try a different step, edit the volume mount in `docker-compose.yaml`:
+The Docker Compose mounts the Step 2 config by default. To try the basic routing step, edit the volume mount in `docker-compose.yaml`:
 
 ```yaml
 volumes:
-  # Change this line to try different steps:
+  # Change this line to switch steps:
   - ./agentgateway/configs/step1-basic-routing/agentgateway.yaml:/cfg/agentgateway.yaml:ro
   # - ./agentgateway/configs/step2-multi-provider/agentgateway.yaml:/cfg/agentgateway.yaml:ro
-  # - ./agentgateway/configs/step3-mcp-federation/agentgateway.yaml:/cfg/agentgateway.yaml:ro
-  # - ./agentgateway/configs/step4-mcp-auth/agentgateway.yaml:/cfg/agentgateway.yaml:ro
 ```
 
 Then `docker compose restart agentgateway`.
@@ -474,14 +352,12 @@ Then `docker compose restart agentgateway`.
 | Requires Postgres | No database needed |
 | `litellm --config` | `agentgateway -f` or `--file=` |
 
-### New Capabilities (No LiteLLM Equivalent)
+### Additional AgentGateway Capabilities
 
 | AgentGateway Feature | What It Does |
 |---|---|
-| `backends[].mcp.targets[]` | Federate multiple MCP servers behind one endpoint |
-| `policies.jwtAuth` | JWT authentication on any route (LLM or MCP) |
+| `policies.jwtAuth` | JWT authentication on any route |
 | `policies.authorization.rules[]` | CEL-based authorization (inspect JWT claims, paths, headers) |
-| `mcpAuthentication` | Spec-compliant MCP Auth (resource metadata, JWKS, OAuth) |
 | A2A backends | Native Agent-to-Agent protocol routing |
 | Hot-reload | Edit YAML, save — live immediately. No restart. |
 | xDS config | Dynamic config updates without any downtime |
@@ -494,21 +370,19 @@ LiteLLM is a good LLM gateway. If all you need is "route prompts to providers," 
 
 AgentGateway is for what comes next:
 
-1. **Unified agentic infrastructure.** LLM routing, MCP federation, A2A protocol handling, tool security — one binary, one config file. No need to stitch together separate tools.
+1. **Unified agentic infrastructure.** LLM routing, A2A protocol handling, tool security — one binary, one config file. No need to stitch together separate tools.
 
 2. **Rust performance.** Single binary, ~10MB, microsecond proxy overhead. No Python runtime, no Postgres dependency. Deploy it anywhere — from a laptop to a Kubernetes cluster.
 
 3. **Protocol-native routing.** Every provider speaks its native protocol. No translation layers, no edge-case incompatibilities. Anthropic's tool use, streaming, thinking tokens, prompt caching — all work natively through the gateway.
 
-4. **MCP as infrastructure.** MCP federation, spec-compliant authentication, CEL-based tool authorization, and an admin UI with a built-in MCP playground. This is how you run MCP in production.
+4. **A2A protocol support.** Agent-to-Agent communication is a first-class protocol. As multi-agent systems grow, A2A is how agents discover and coordinate with each other. AgentGateway is ready.
 
-5. **A2A protocol support.** Agent-to-Agent communication is a first-class protocol. As multi-agent systems grow, A2A is how agents discover and coordinate with each other. AgentGateway is ready.
+5. **Hot-reload everything.** Edit the YAML, save. Done. No restart, no downtime, no database migration. Also supports xDS for dynamic config updates at scale.
 
-6. **Hot-reload everything.** Edit the YAML, save. Done. No restart, no downtime, no database migration. Also supports xDS for dynamic config updates at scale.
+6. **Linux Foundation governance.** Open governance, multi-vendor backing, community-driven roadmap. Not tied to a single company.
 
-7. **Linux Foundation governance.** Open governance, multi-vendor backing, community-driven roadmap. Not tied to a single company.
-
-8. **Zero-dependency admin UI.** Open `http://localhost:15000/ui` — browse LLM configs, MCP tools, test servers in a playground, update config live. No database, no setup, no login required.
+7. **Zero-dependency admin UI.** Open `http://localhost:15000/ui` — browse LLM configs, update config live. No database, no setup, no login required.
 
 ---
 
@@ -516,8 +390,6 @@ AgentGateway is for what comes next:
 
 - Browse the [AgentGateway docs](https://agentgateway.dev/docs/)
 - Read the [Multi-LLM provider routing guide](https://www.solo.io/blog/getting-started-with-multi-llm-provider-routing)
-- Explore [MCP authentication](https://agentgateway.dev/docs/standalone/latest/configuration/security/mcp-authn/)
-- Read the [MCP Authorization blog post](https://agentgateway.dev/blog/2025-08-12-mcp-authorization-following-the-spec/)
 - Join the [AgentGateway GitHub](https://github.com/agentgateway/agentgateway)
 
 ---
